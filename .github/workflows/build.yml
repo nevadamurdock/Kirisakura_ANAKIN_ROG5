@@ -28,9 +28,9 @@ on:
           - manual_hook   # inline hook (CONFIG_KSU_MANUAL_HOOK=y)
           - susfs         # KSU + SUSFS (CONFIG_KSU_SUSFS=y)
       SUSFS_BRANCH:
-        description: "Branch susfs4ksu yang cocok dengan versi kernel (hanya dipakai jika KSU_MODE=susfs), contoh: gki-android12-5.4"
+        description: "Branch susfs4ksu yang cocok dengan kernel ini (non-GKI CAF 5.4 -> pakai 'kernel-5.4')"
         required: false
-        default: "gki-android12-5.4"
+        default: "kernel-5.4"
       CLANG_TAG:
         description: "Tag prebuilt Clang AOSP (Clang 14.0.7 = clang-r450784d)"
         required: true
@@ -128,16 +128,35 @@ jobs:
           git clone --depth 1 -b "${{ github.event.inputs.SUSFS_BRANCH }}" \
             https://gitlab.com/simonpunk/susfs4ksu.git ../susfs4ksu
 
-          # Copy patch kernel-side sesuai versi kernel (contoh untuk 5.4)
-          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-*.patch ./susfs_kernel.patch || true
+          # 1. Patch driver KernelSU (folder ini dibuat oleh setup.sh ReSukiSU di step sebelumnya)
+          #    supaya driver KSU support hook susfs
+          if [ -f ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ]; then
+            cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU/
+            cd KernelSU
+            patch -p1 < 10_enable_susfs_for_ksu.patch
+            cd ..
+          else
+            echo "PERINGATAN: 10_enable_susfs_for_ksu.patch tidak ditemukan, cek isi repo susfs4ksu branch ${{ github.event.inputs.SUSFS_BRANCH }}."
+          fi
+
+          # 2. Copy source tambahan susfs (fs/susfs.c, include/linux/susfs*.h, dll) ke kernel tree
           cp -r ../susfs4ksu/kernel_patches/fs/* ./fs/ || true
           cp -r ../susfs4ksu/kernel_patches/include/linux/* ./include/linux/ || true
 
-          if [ -f ./susfs_kernel.patch ]; then
-            patch -p1 < ./susfs_kernel.patch
+          # 3. Patch kernel-side sesuai versi (nama file mengikuti branch, contoh untuk kernel-5.4:
+          #    50_add_susfs_in_kernel-5.4.patch)
+          SUSFS_KERNEL_PATCH="../susfs4ksu/kernel_patches/50_add_susfs_in_${{ github.event.inputs.SUSFS_BRANCH }}.patch"
+          if [ -f "$SUSFS_KERNEL_PATCH" ]; then
+            patch -p1 < "$SUSFS_KERNEL_PATCH"
           else
-            echo "PERINGATAN: patch susfs tidak ditemukan otomatis, cek struktur folder susfs4ksu branch ${{ github.event.inputs.SUSFS_BRANCH }} dan sesuaikan step ini manual."
+            echo "PERINGATAN: patch kernel-side tidak ditemukan di path: $SUSFS_KERNEL_PATCH"
+            echo "Cek nama file asli di https://gitlab.com/simonpunk/susfs4ksu/-/tree/${{ github.event.inputs.SUSFS_BRANCH }}/kernel_patches lalu sesuaikan step ini."
+            exit 1
           fi
+
+          echo "Catatan: jika ada hunk patch yang gagal (*.rej), kemungkinan besar karena struct"
+          echo "kernel Kirisakura sudah dimodifikasi (mis. android_kabi_reservedX hilang)."
+          echo "Perbaiki manual sesuai README susfs4ksu bagian kabi member."
 
       # ------------------------------------------------------------------
       # 7. (Opsional) Inline / Manual Hook - hanya jalan kalau KSU_MODE = manual_hook
@@ -199,6 +218,10 @@ jobs:
       - name: Build kernel
         working-directory: kernel
         run: |
+          # Kernel target tetap arm64 (ARCH=arm64). CROSS_COMPILE_ARM32 di sini
+          # HANYA dipakai untuk compile vDSO32 & compat syscall stub, supaya
+          # kernel arm64 ini tetap bisa menjalankan apk 32-bit (CONFIG_COMPAT) -
+          # ini bukan berarti kernelnya di-build sebagai arm32.
           export CROSS_COMPILE=aarch64-linux-android-
           export CROSS_COMPILE_ARM32=arm-linux-androideabi-
           export CLANG_TRIPLE=aarch64-linux-gnu-
