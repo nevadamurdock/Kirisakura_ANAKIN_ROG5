@@ -182,7 +182,7 @@ jobs:
           '
 
       # ------------------------------------------------------------------
-      # 6. MODE B: SUSFS Native 5.4 Patching (Official Simonpunk Repo)
+      # 6. MODE B: SUSFS Native 5.4 Patching (Non-Interactive Batch Mode)
       # ------------------------------------------------------------------
       - name: Apply Native Official SUSFS Kernel 5.4 Patch
         if: ${{ github.event.inputs.KSU_MODE == 'susfs' }}
@@ -195,10 +195,11 @@ jobs:
           cp -rf ../susfs_official/kernel_patches/fs/* ./fs/ || true
           cp -rf ../susfs_official/kernel_patches/include/linux/* ./include/linux/ || true
 
-          echo "🛠️ 3. Applying 50_add_susfs_in_kernel-5.4.patch..."
+          echo "🛠️ 3. Applying 50_add_susfs_in_kernel-5.4.patch (Batch Mode)..."
           PATCH_FILE="../susfs_official/kernel_patches/50_add_susfs_in_kernel-5.4.patch"
           if [ -f "$PATCH_FILE" ]; then
-            patch -p1 --ignore-whitespace -N -s < "$PATCH_FILE" || true
+            # Use --batch to auto-skip missing files without prompt interaction
+            patch -p1 --batch --ignore-whitespace -N -s < "$PATCH_FILE" || true
           fi
 
           echo "🛠️ 4. Wiring Up Build System (fs/Makefile & fs/Kconfig)..."
@@ -211,7 +212,7 @@ jobs:
 
           echo "🧹 5. Cleaning Temporary Official Repo..."
           rm -rf ../susfs_official
-
+          
       # ------------------------------------------------------------------
       # 7. WireGuard Integration Fix
       # ------------------------------------------------------------------
