@@ -350,7 +350,7 @@ jobs:
           # Variabel Toolchain LLVM
           LLVM_FLAGS="CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip"
 
-          # 2. Make Defconfig (Sertakan LLVM_FLAGS agar tidak mencari aarch64-linux-android-ld)
+          # 2. Make Defconfig
           make O=${OUT_DIR} ARCH=${ARCH} \
             CROSS_COMPILE=${CROSS_COMPILE} \
             CROSS_COMPILE_ARM32=${CROSS_COMPILE_ARM32} \
@@ -358,13 +358,25 @@ jobs:
             ${LLVM_FLAGS} \
             "${{ github.event.inputs.DEFCONFIG }}"
 
-          # 3. Make Kernel Image
+          # 3. Make Kernel Image (Output error dialihkan ke build_error.txt)
           make -j$(nproc --all) O=${OUT_DIR} ARCH=${ARCH} \
             CROSS_COMPILE=${CROSS_COMPILE} \
             CROSS_COMPILE_ARM32=${CROSS_COMPILE_ARM32} \
             CLANG_TRIPLE=${CLANG_TRIPLE} \
             ${LLVM_FLAGS} \
-            KCFLAGS="${KCFLAGS}"
+            KCFLAGS="${KCFLAGS}" 2>&1 | tee build_error.txt
+
+      # ------------------------------------------------------------------
+      # Upload Artifact Jika Build GAGAL
+      # ------------------------------------------------------------------
+      - name: Upload Error Log Artifact
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Build-Error-Log
+          path: kernel/build_error.txt
+          if-no-files-found: warn
+          retention-days: 7
             
       # ------------------------------------------------------------------
       # 10. Kumpulkan output (Image / Image.gz-dtb / dtb)
