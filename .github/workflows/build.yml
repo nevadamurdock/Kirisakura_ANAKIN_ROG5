@@ -182,54 +182,26 @@ jobs:
           '
 
       # ------------------------------------------------------------------
-      # 6. MODE B: SUSFS v2.2.0 Patching (Clean Directory Targeting)
+      # 6. MODE B: SUSFS Native 5.4 Patching (Official Simonpunk Repo)
       # ------------------------------------------------------------------
-      - name: Apply SUSFS Patch (Original 5.4 + Backport v2.2.0)
+      - name: Apply Native Official SUSFS Kernel 5.4 Patch
         if: ${{ github.event.inputs.KSU_MODE == 'susfs' }}
         working-directory: kernel
         run: |
-          echo "⬇️ 1. Cloning Official SUSFS 5.4 Repo for Base Hooks..."
+          echo "⬇️ 1. Cloning Official SUSFS 5.4 Repository..."
           git clone --depth 1 -b kernel-5.4 https://gitlab.com/simonpunk/susfs4ksu.git ../susfs_official
 
-          echo "🛠️ 2. Applying Original Kernel 5.4 Base Hooks (Core Kernel)..."
-          if [ -f "../susfs_official/kernel_patches/50_add_susfs_in_kernel-5.4.patch" ]; then
-            patch -p1 --ignore-whitespace -N -s < ../susfs_official/kernel_patches/50_add_susfs_in_kernel-5.4.patch || true
+          echo "📂 2. Copying Official SUSFS C Files & Headers..."
+          cp -rf ../susfs_official/kernel_patches/fs/* ./fs/ || true
+          cp -rf ../susfs_official/kernel_patches/include/linux/* ./include/linux/ || true
+
+          echo "🛠️ 3. Applying 50_add_susfs_in_kernel-5.4.patch..."
+          PATCH_FILE="../susfs_official/kernel_patches/50_add_susfs_in_kernel-5.4.patch"
+          if [ -f "$PATCH_FILE" ]; then
+            patch -p1 --ignore-whitespace -N -s < "$PATCH_FILE" || true
           fi
 
-          echo "⬇️ 3. Downloading SUSFS v2.2.0 Package..."
-          curl -sL "${{ github.event.inputs.PATCH_ZIP_URL }}" -o susfs_pack.zip
-          unzip -q susfs_pack.zip -d susfs_tmp/
-
-          echo "📂 4. Copying SUSFS v2.2.0 Source Files..."
-          cp -rf susfs_tmp/fs/* ./fs/ || true
-          cp -rf susfs_tmp/include/linux/* ./include/linux/ || true
-
-          echo "🛠️ 5. Applying SUSFS v2.2.0 Core Kernel Patch..."
-          if [ -f "susfs_tmp/50_add_susfs_2.2.0_in_kernel-5.4.patch" ]; then
-            patch -p1 --ignore-whitespace -N -s < susfs_tmp/50_add_susfs_2.2.0_in_kernel-5.4.patch || true
-          fi
-
-          echo "🛠️ 6. Patching ReSukiSU Driver Specifically..."
-          # Deteksi lokasi lokasi folder ReSukiSU/KernelSU
-          KSU_DIR=""
-          if [ -d "KernelSU" ]; then
-            KSU_DIR="KernelSU"
-          elif [ -d "drivers/kernelsu" ]; then
-            KSU_DIR="drivers/kernelsu"
-          fi
-
-          PATCH_KSU="$(pwd)/susfs_tmp/KernelSU_patches/10_enable_susfs_for_ksu.patch"
-
-          if [ -n "$KSU_DIR" ] && [ -f "$PATCH_KSU" ]; then
-            echo "Applying $PATCH_KSU inside $KSU_DIR..."
-            cd "$KSU_DIR"
-            # Eksekusi patch langsung DARI DALAM folder ReSukiSU
-            patch -p1 --ignore-whitespace -N < "$PATCH_KSU" || \
-            patch -p0 --ignore-whitespace -N < "$PATCH_KSU" || true
-            cd ..
-          fi
-
-          echo "🛠️ 7. Wiring Up Build System (fs/Makefile & fs/Kconfig)..."
+          echo "🛠️ 4. Wiring Up Build System (fs/Makefile & fs/Kconfig)..."
           if ! grep -q "obj-\$(CONFIG_SUSFS)" fs/Makefile; then
             echo 'obj-$(CONFIG_SUSFS) += susfs.o' >> fs/Makefile
           fi
@@ -237,7 +209,8 @@ jobs:
             sed -i '/endmenu/i source "fs/susfs_Kconfig"' fs/Kconfig
           fi
 
-          rm -rf susfs_tmp susfs_pack.zip ../susfs_official
+          echo "🧹 5. Cleaning Temporary Official Repo..."
+          rm -rf ../susfs_official
 
       # ------------------------------------------------------------------
       # 7. WireGuard Integration Fix
