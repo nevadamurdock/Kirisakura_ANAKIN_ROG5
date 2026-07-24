@@ -71,40 +71,33 @@ jobs:
             device-tree-compiler
 
       # ------------------------------------------------------------------
-      # 3. Ambil toolchain Clang 14.0.7 (AOSP prebuilt)
+      # 3. Ambil toolchain Clang 14.0.7 (AOSP Prebuilt Direct Download)
       # ------------------------------------------------------------------
       - name: Fetch Clang 14.0.7 toolchain
         run: |
-          mkdir -p toolchain/clang
-          cd toolchain/clang
-          git clone --filter=blob:none --no-checkout --depth 1 \
-            https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 clang-src
-          cd clang-src
-          git sparse-checkout init --cone
-          git sparse-checkout set "${{ github.event.inputs.CLANG_TAG }}"
-          git checkout
+          mkdir -p $GITHUB_WORKSPACE/toolchain/clang
+          cd $GITHUB_WORKSPACE/toolchain/clang
+          # Direct download AOSP clang-r450784d prebuilt archive / clone repo ringan
+          git clone --depth 1 https://gitlab.com/sweeto1/clang-r450784d.git clang-src || \
+          git clone --depth 1 https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r450784d.git clang-src
           
-          # Set absolute path menggunakan GITHUB_WORKSPACE
-          echo "CLANG_DIR=$GITHUB_WORKSPACE/toolchain/clang/clang-src/${{ github.event.inputs.CLANG_TAG }}" >> "$GITHUB_ENV"
+          echo "CLANG_DIR=$GITHUB_WORKSPACE/toolchain/clang/clang-src" >> "$GITHUB_ENV"
 
       # ------------------------------------------------------------------
-      # 4. Ambil GCC prebuilt untuk CROSS_COMPILE
+      # 4. Ambil GCC prebuilt untuk CROSS_COMPILE (aarch64 & arm)
       # ------------------------------------------------------------------
       - name: Fetch GCC aarch64 & arm prebuilts
         run: |
-          mkdir -p toolchain/gcc
-          cd toolchain/gcc
-          git clone --depth 1 \
-            https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 aarch64
-          git clone --depth 1 \
-            https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 arm
+          mkdir -p $GITHUB_WORKSPACE/toolchain/gcc
+          cd $GITHUB_WORKSPACE/toolchain/gcc
+          git clone --depth 1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 aarch64
+          git clone --depth 1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 arm
 
-          # Set absolute path menggunakan GITHUB_WORKSPACE
           echo "GCC64_DIR=$GITHUB_WORKSPACE/toolchain/gcc/aarch64" >> "$GITHUB_ENV"
           echo "GCC32_DIR=$GITHUB_WORKSPACE/toolchain/gcc/arm" >> "$GITHUB_ENV"
-
+          
       # ------------------------------------------------------------------
-      # Export toolchain ke GITHUB_PATH
+      # Export toolchain PATH
       # ------------------------------------------------------------------
       - name: Export toolchain PATH
         run: |
