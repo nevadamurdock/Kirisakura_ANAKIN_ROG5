@@ -217,12 +217,22 @@ jobs:
           tail -n 15 "$DEFCONFIG_PATH"
 
       # ------------------------------------------------------------------
+      # Debug: Verifikasi isi folder Toolchain sebelum build
+      # ------------------------------------------------------------------
+      - name: Verify Toolchain Paths
+        run: |
+          echo "=== Check Clang ==="
+          ls -la "$CLANG_DIR/bin/clang" || echo "Clang missing!"
+          echo "=== Check GCC 64 ==="
+          ls -la "$GCC64_DIR/bin/" | grep ld || echo "GCC 64 ld missing!"    
+
+      # ------------------------------------------------------------------
       # 9. Build kernel
       # ------------------------------------------------------------------
       - name: Build kernel
         working-directory: kernel
         run: |
-          # Gabungkan PATH secara eksplisit di awal execution
+          # 1. Masukkan PATH ke lokal shell
           export PATH="$CLANG_DIR/bin:$GCC64_DIR/bin:$GCC32_DIR/bin:$PATH"
 
           export ARCH=arm64
@@ -232,23 +242,25 @@ jobs:
           export CLANG_TRIPLE=aarch64-linux-gnu-
           export KCFLAGS="-O3"
 
-          # 1. Defconfig
-          make O=${OUT_DIR} ARCH=${ARCH} CC=clang \
+          # Variabel Toolchain LLVM
+          LLVM_FLAGS="CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip"
+
+          # 2. Make Defconfig (Sertakan LLVM_FLAGS agar tidak mencari aarch64-linux-android-ld)
+          make O=${OUT_DIR} ARCH=${ARCH} \
             CROSS_COMPILE=${CROSS_COMPILE} \
             CROSS_COMPILE_ARM32=${CROSS_COMPILE_ARM32} \
             CLANG_TRIPLE=${CLANG_TRIPLE} \
+            ${LLVM_FLAGS} \
             "${{ github.event.inputs.DEFCONFIG }}"
 
-          # 2. Build Image
+          # 3. Make Kernel Image
           make -j$(nproc --all) O=${OUT_DIR} ARCH=${ARCH} \
-            CC=clang \
             CROSS_COMPILE=${CROSS_COMPILE} \
             CROSS_COMPILE_ARM32=${CROSS_COMPILE_ARM32} \
             CLANG_TRIPLE=${CLANG_TRIPLE} \
-            LD=ld.lld AR=llvm-ar NM=llvm-nm \
-            OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+            ${LLVM_FLAGS} \
             KCFLAGS="${KCFLAGS}"
-
+            
       # ------------------------------------------------------------------
       # 10. Kumpulkan output (Image / Image.gz-dtb / dtb)
       # ------------------------------------------------------------------
