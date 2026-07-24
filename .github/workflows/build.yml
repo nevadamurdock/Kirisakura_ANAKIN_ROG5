@@ -89,9 +89,15 @@ jobs:
       - name: Fetch GCC aarch64 & arm prebuilts
         run: |
           mkdir -p $GITHUB_WORKSPACE/toolchain/gcc
-          cd $GITHUB_WORKSPACE/toolchain/gcc
-          git clone --depth 1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 aarch64
-          git clone --depth 1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 arm
+          
+          # Clone langsung ke folder 'aarch64' dan 'arm' secara spesifik
+          git clone --depth 1 \
+            https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 \
+            $GITHUB_WORKSPACE/toolchain/gcc/aarch64
+            
+          git clone --depth 1 \
+            https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 \
+            $GITHUB_WORKSPACE/toolchain/gcc/arm
 
           echo "GCC64_DIR=$GITHUB_WORKSPACE/toolchain/gcc/aarch64" >> "$GITHUB_ENV"
           echo "GCC32_DIR=$GITHUB_WORKSPACE/toolchain/gcc/arm" >> "$GITHUB_ENV"
