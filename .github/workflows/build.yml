@@ -90,13 +90,14 @@ jobs:
         run: |
           mkdir -p $GITHUB_WORKSPACE/toolchain/gcc
           
-          # Clone langsung ke folder 'aarch64' dan 'arm' secara spesifik
+          # Clone GCC 64-bit (aarch64) dari mirror LineageOS
           git clone --depth 1 \
-            https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 \
+            https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git \
             $GITHUB_WORKSPACE/toolchain/gcc/aarch64
             
+          # Clone GCC 32-bit (arm) dari mirror LineageOS
           git clone --depth 1 \
-            https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 \
+            https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git \
             $GITHUB_WORKSPACE/toolchain/gcc/arm
 
           echo "GCC64_DIR=$GITHUB_WORKSPACE/toolchain/gcc/aarch64" >> "$GITHUB_ENV"
