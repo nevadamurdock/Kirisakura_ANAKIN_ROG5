@@ -71,16 +71,19 @@ jobs:
             device-tree-compiler
 
       # ------------------------------------------------------------------
-      # 3. Ambil toolchain Clang 14.0.7 (AOSP Prebuilt Direct Download)
+      # 3. Ambil toolchain Clang 14.0.7 (AOSP prebuilt resmi via Tarball)
       # ------------------------------------------------------------------
       - name: Fetch Clang 14.0.7 toolchain
         run: |
           mkdir -p $GITHUB_WORKSPACE/toolchain/clang
           cd $GITHUB_WORKSPACE/toolchain/clang
-          # Direct download AOSP clang-r450784d prebuilt archive / clone repo ringan
-          git clone --depth 1 https://gitlab.com/sweeto1/clang-r450784d.git clang-src || \
-          git clone --depth 1 https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r450784d.git clang-src
           
+          # Download archive resmi AOSP clang-r450784d
+          curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r450784d.tar.gz
+          mkdir -p clang-src
+          tar -xzf clang-r450784d.tar.gz -C clang-src
+          rm clang-r450784d.tar.gz
+
           echo "CLANG_DIR=$GITHUB_WORKSPACE/toolchain/clang/clang-src" >> "$GITHUB_ENV"
 
       # ------------------------------------------------------------------
