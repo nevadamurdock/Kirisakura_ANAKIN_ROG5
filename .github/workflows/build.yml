@@ -241,7 +241,7 @@ jobs:
           fi    
 
       # ------------------------------------------------------------------
-      # Auto-Patch Manual Hooks ReSukiSU (fs/exec.c & fs/open.c)
+      # Auto-Patch Manual Hooks ReSukiSU (fs/exec.c, fs/open.c, fs/stat.c)
       # ------------------------------------------------------------------
       - name: Auto-patch ReSukiSU Hooks
         working-directory: kernel
@@ -265,7 +265,7 @@ jobs:
                           code = code[:idx] + declaration + code[idx:brace_idx+1] + call_code + code[brace_idx+1:]
                           with open(exec_path, "w") as f:
                               f.write(code)
-                          print("[SUCCESS] fs/exec.c successfully patched!")
+                          print("[SUCCESS] fs/exec.c patched!")
               else:
                   print("[INFO] fs/exec.c already contains ksu_handle_execveat.")
 
@@ -275,11 +275,9 @@ jobs:
               with open(open_path, "r") as f:
                   code = f.read()
               if "ksu_handle_faccessat" not in code:
-                  # Mencari tempat injeksi di do_faccessat / faccessat
                   target = "long do_faccessat"
                   if target not in code:
                       target = "SYSCALL_DEFINE3(faccessat"
-                  
                   idx = code.find(target)
                   if idx != -1:
                       brace_idx = code.find("{", idx)
@@ -289,13 +287,31 @@ jobs:
                           code = code[:idx] + declaration + code[idx:brace_idx+1] + call_code + code[brace_idx+1:]
                           with open(open_path, "w") as f:
                               f.write(code)
-                          print("[SUCCESS] fs/open.c successfully patched!")
-                      else:
-                          print("[ERROR] Opening brace for faccessat not found in fs/open.c.")
-                  else:
-                      print("[ERROR] faccessat function target not found in fs/open.c.")
+                          print("[SUCCESS] fs/open.c patched!")
               else:
                   print("[INFO] fs/open.c already contains ksu_handle_faccessat.")
+
+          # 3. Patch fs/stat.c (ksu_handle_stat)
+          stat_path = "fs/stat.c"
+          if os.path.exists(stat_path):
+              with open(stat_path, "r") as f:
+                  code = f.read()
+              if "ksu_handle_stat" not in code:
+                  target = "int vfs_statx"
+                  if target not in code:
+                      target = "vfs_fstatat"
+                  idx = code.find(target)
+                  if idx != -1:
+                      brace_idx = code.find("{", idx)
+                      if brace_idx != -1:
+                          declaration = "\n#ifdef CONFIG_KSU\nextern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);\n#endif\n"
+                          call_code = "\n    #ifdef CONFIG_KSU\n    ksu_handle_stat(&dfd, &filename, &flags);\n    #endif\n"
+                          code = code[:idx] + declaration + code[idx:brace_idx+1] + call_code + code[brace_idx+1:]
+                          with open(stat_path, "w") as f:
+                              f.write(code)
+                          print("[SUCCESS] fs/stat.c patched!")
+              else:
+                  print("[INFO] fs/stat.c already contains ksu_handle_stat.")
           '
           
       # ------------------------------------------------------------------
