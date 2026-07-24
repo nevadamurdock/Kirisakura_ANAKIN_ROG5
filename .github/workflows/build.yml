@@ -362,12 +362,12 @@ jobs:
             "${{ github.event.inputs.DEFCONFIG }}"
 
           # 3. Make Kernel Image
-          make -j1 O=${OUT_DIR} ARCH=${ARCH} \
+          make -j$(nproc --all) O=${OUT_DIR} ARCH=${ARCH} \
             CROSS_COMPILE=${CROSS_COMPILE} \
             CROSS_COMPILE_ARM32=${CROSS_COMPILE_ARM32} \
             CLANG_TRIPLE=${CLANG_TRIPLE} \
             ${LLVM_FLAGS} \
-            KCFLAGS="${KCFLAGS}"
+            KCFLAGS="${KCFLAGS}" 2>&1 | tee build.log
             
 
             
@@ -393,15 +393,13 @@ jobs:
           if-no-files-found: error
 
       # ------------------------------------------------------------------
-      # 11. Upload Error Log Artifact (HANYA BERJALAN JIKA BUILD GAGAL)
+      # 11. Upload Full Build Log Artifact
       # ------------------------------------------------------------------
-      - name: Upload Error Log Artifact
-        if: failure()
+      - name: Upload Build Log
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Build-Error-Log
-          path: |
-            kernel/build_error.txt
-            kernel/*.log
+          name: Full-Kernel-Build-Log
+          path: build.log
           if-no-files-found: warn
-          retention-days: 7     
+          retention-days: 7
