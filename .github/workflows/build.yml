@@ -241,7 +241,7 @@ jobs:
           fi    
 
       # ------------------------------------------------------------------
-      # Auto-Patch Manual Hooks ReSukiSU (exec, open, stat & all stat ret)
+      # Auto-Patch Manual Hooks ReSukiSU (exec, open, stat & reboot)
       # ------------------------------------------------------------------
       - name: Auto-patch ReSukiSU Hooks
         working-directory: kernel
@@ -287,14 +287,12 @@ jobs:
                               f.write(code)
                           print("[SUCCESS] fs/open.c patched!")
 
-          # 3. Patch fs/stat.c (ksu_handle_stat, ksu_handle_newfstat_ret, ksu_handle_fstat64_ret)
+          # 3. Patch fs/stat.c (ksu_handle_stat & stat ret)
           stat_path = "fs/stat.c"
           if os.path.exists(stat_path):
               with open(stat_path, "r") as f:
                   code = f.read()
-              
               missing_hooks = [h for h in ["ksu_handle_stat", "ksu_handle_newfstat_ret", "ksu_handle_fstat64_ret"] if h not in code]
-              
               if missing_hooks:
                   target = "int vfs_statx"
                   if target not in code:
@@ -309,6 +307,28 @@ jobs:
                           with open(stat_path, "w") as f:
                               f.write(code)
                           print(f"[SUCCESS] fs/stat.c patched for: {missing_hooks}")
+
+          # 4. Patch kernel/reboot.c (ksu_handle_sys_reboot)
+          reboot_path = "kernel/reboot.c"
+          if os.path.exists(reboot_path):
+              with open(reboot_path, "r") as f:
+                  code = f.read()
+              if "ksu_handle_sys_reboot" not in code:
+                  target = "SYSCALL_DEFINE4(reboot"
+                  if target not in code:
+                      target = "kernel_restart"
+                  idx = code.find(target)
+                  if idx != -1:
+                      brace_idx = code.find("{", idx)
+                      if brace_idx != -1:
+                          dec = "\n#ifdef CONFIG_KSU\nextern int ksu_handle_sys_reboot(int *magic1, int *magic2, unsigned int *cmd, void __user **arg);\n#endif\n"
+                          call = "\n    #ifdef CONFIG_KSU\n    ksu_handle_sys_reboot(&magic1, &magic2, &cmd, &arg);\n    #endif\n"
+                          code = code[:idx] + dec + code[idx:brace_idx+1] + call + code[brace_idx+1:]
+                          with open(reboot_path, "w") as f:
+                              f.write(code)
+                          print("[SUCCESS] kernel/reboot.c patched!")
+              else:
+                  print("[INFO] kernel/reboot.c already contains ksu_handle_sys_reboot.")
           '
           
       # ------------------------------------------------------------------
