@@ -241,7 +241,7 @@ jobs:
           fi    
 
       # ------------------------------------------------------------------
-      # Auto-Patch Manual Hooks ReSukiSU (exec, open, stat, newfstat)
+      # Auto-Patch Manual Hooks ReSukiSU (exec, open, stat & all stat ret)
       # ------------------------------------------------------------------
       - name: Auto-patch ReSukiSU Hooks
         working-directory: kernel
@@ -260,9 +260,9 @@ jobs:
                   if idx != -1:
                       brace_idx = code.find("{", idx)
                       if brace_idx != -1:
-                          declaration = "\n#ifdef CONFIG_KSU\nextern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags);\n#endif\n"
-                          call_code = "\n    #ifdef CONFIG_KSU\n    ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);\n    #endif\n"
-                          code = code[:idx] + declaration + code[idx:brace_idx+1] + call_code + code[brace_idx+1:]
+                          dec = "\n#ifdef CONFIG_KSU\nextern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags);\n#endif\n"
+                          call = "\n    #ifdef CONFIG_KSU\n    ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);\n    #endif\n"
+                          code = code[:idx] + dec + code[idx:brace_idx+1] + call + code[brace_idx+1:]
                           with open(exec_path, "w") as f:
                               f.write(code)
                           print("[SUCCESS] fs/exec.c patched!")
@@ -280,23 +280,22 @@ jobs:
                   if idx != -1:
                       brace_idx = code.find("{", idx)
                       if brace_idx != -1:
-                          declaration = "\n#ifdef CONFIG_KSU\nextern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *flags);\n#endif\n"
-                          call_code = "\n    #ifdef CONFIG_KSU\n    ksu_handle_faccessat(&dfd, &filename, &mode, NULL);\n    #endif\n"
-                          code = code[:idx] + declaration + code[idx:brace_idx+1] + call_code + code[brace_idx+1:]
+                          dec = "\n#ifdef CONFIG_KSU\nextern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *flags);\n#endif\n"
+                          call = "\n    #ifdef CONFIG_KSU\n    ksu_handle_faccessat(&dfd, &filename, &mode, NULL);\n    #endif\n"
+                          code = code[:idx] + dec + code[idx:brace_idx+1] + call + code[brace_idx+1:]
                           with open(open_path, "w") as f:
                               f.write(code)
                           print("[SUCCESS] fs/open.c patched!")
 
-          # 3. Patch fs/stat.c (ksu_handle_stat & ksu_handle_newfstat_ret)
+          # 3. Patch fs/stat.c (ksu_handle_stat, ksu_handle_newfstat_ret, ksu_handle_fstat64_ret)
           stat_path = "fs/stat.c"
           if os.path.exists(stat_path):
               with open(stat_path, "r") as f:
                   code = f.read()
               
-              need_stat = "ksu_handle_stat" not in code
-              need_newfstat = "ksu_handle_newfstat_ret" not in code
+              missing_hooks = [h for h in ["ksu_handle_stat", "ksu_handle_newfstat_ret", "ksu_handle_fstat64_ret"] if h not in code]
               
-              if need_stat or need_newfstat:
+              if missing_hooks:
                   target = "int vfs_statx"
                   if target not in code:
                       target = "vfs_fstatat"
@@ -304,12 +303,12 @@ jobs:
                   if idx != -1:
                       brace_idx = code.find("{", idx)
                       if brace_idx != -1:
-                          declaration = "\n#ifdef CONFIG_KSU\nextern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);\nextern int ksu_handle_newfstat_ret(struct kstat *stat);\n#endif\n"
-                          call_code = "\n    #ifdef CONFIG_KSU\n    ksu_handle_stat(&dfd, &filename, &flags);\n    ksu_handle_newfstat_ret(stat);\n    #endif\n"
-                          code = code[:idx] + declaration + code[idx:brace_idx+1] + call_code + code[brace_idx+1:]
+                          dec = "\n#ifdef CONFIG_KSU\nextern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);\nextern int ksu_handle_newfstat_ret(struct kstat *stat);\nextern int ksu_handle_fstat64_ret(struct kstat *stat);\n#endif\n"
+                          call = "\n    #ifdef CONFIG_KSU\n    ksu_handle_stat(&dfd, &filename, &flags);\n    ksu_handle_newfstat_ret(stat);\n    ksu_handle_fstat64_ret(stat);\n    #endif\n"
+                          code = code[:idx] + dec + code[idx:brace_idx+1] + call + code[brace_idx+1:]
                           with open(stat_path, "w") as f:
                               f.write(code)
-                          print("[SUCCESS] fs/stat.c patched for stat and newfstat_ret!")
+                          print(f"[SUCCESS] fs/stat.c patched for: {missing_hooks}")
           '
           
       # ------------------------------------------------------------------
