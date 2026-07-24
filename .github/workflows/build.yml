@@ -71,8 +71,7 @@ jobs:
             device-tree-compiler
 
       # ------------------------------------------------------------------
-      # 3. Ambil toolchain Clang 14.0.7 (AOSP prebuilt resmi)
-      #    Sparse-checkout untuk mengambil subfolder tag/versi terkait
+      # 3. Ambil toolchain Clang 14.0.7 (AOSP prebuilt)
       # ------------------------------------------------------------------
       - name: Fetch Clang 14.0.7 toolchain
         run: |
@@ -84,7 +83,9 @@ jobs:
           git sparse-checkout init --cone
           git sparse-checkout set "${{ github.event.inputs.CLANG_TAG }}"
           git checkout
-          echo "CLANG_DIR=$(pwd)/${{ github.event.inputs.CLANG_TAG }}" >> "$GITHUB_ENV"
+          
+          # Set absolute path menggunakan GITHUB_WORKSPACE
+          echo "CLANG_DIR=$GITHUB_WORKSPACE/toolchain/clang/clang-src/${{ github.event.inputs.CLANG_TAG }}" >> "$GITHUB_ENV"
 
       # ------------------------------------------------------------------
       # 4. Ambil GCC prebuilt untuk CROSS_COMPILE
@@ -97,14 +98,16 @@ jobs:
             https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 aarch64
           git clone --depth 1 \
             https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 arm
-          
-          # Dapatkan absolute path agar tidak terpengaruh subfolder
-          echo "GCC64_DIR=$(pwd)/aarch64" >> "$GITHUB_ENV"
-          echo "GCC32_DIR=$(pwd)/arm" >> "$GITHUB_ENV"
 
+          # Set absolute path menggunakan GITHUB_WORKSPACE
+          echo "GCC64_DIR=$GITHUB_WORKSPACE/toolchain/gcc/aarch64" >> "$GITHUB_ENV"
+          echo "GCC32_DIR=$GITHUB_WORKSPACE/toolchain/gcc/arm" >> "$GITHUB_ENV"
+
+      # ------------------------------------------------------------------
+      # Export toolchain ke GITHUB_PATH
+      # ------------------------------------------------------------------
       - name: Export toolchain PATH
         run: |
-          # Tambahkan PATH secara eksplisit ke GITHUB_PATH
           echo "$CLANG_DIR/bin" >> "$GITHUB_PATH"
           echo "$GCC64_DIR/bin" >> "$GITHUB_PATH"
           echo "$GCC32_DIR/bin" >> "$GITHUB_PATH"
@@ -219,7 +222,7 @@ jobs:
       - name: Build kernel
         working-directory: kernel
         run: |
-          # Masukkan PATH ke environment lokal shell
+          # Gabungkan PATH secara eksplisit di awal execution
           export PATH="$CLANG_DIR/bin:$GCC64_DIR/bin:$GCC32_DIR/bin:$PATH"
 
           export ARCH=arm64
@@ -229,11 +232,11 @@ jobs:
           export CLANG_TRIPLE=aarch64-linux-gnu-
           export KCFLAGS="-O3"
 
-          # 1. Generate Config
+          # 1. Defconfig
           make O=${OUT_DIR} ARCH=${ARCH} CC=clang \
             CROSS_COMPILE=${CROSS_COMPILE} \
             CROSS_COMPILE_ARM32=${CROSS_COMPILE_ARM32} \
-            REAL_CC=clang \
+            CLANG_TRIPLE=${CLANG_TRIPLE} \
             "${{ github.event.inputs.DEFCONFIG }}"
 
           # 2. Build Image
@@ -242,7 +245,6 @@ jobs:
             CROSS_COMPILE=${CROSS_COMPILE} \
             CROSS_COMPILE_ARM32=${CROSS_COMPILE_ARM32} \
             CLANG_TRIPLE=${CLANG_TRIPLE} \
-            REAL_CC=clang \
             LD=ld.lld AR=llvm-ar NM=llvm-nm \
             OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
             KCFLAGS="${KCFLAGS}"
