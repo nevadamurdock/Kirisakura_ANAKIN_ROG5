@@ -241,19 +241,19 @@ jobs:
           fi    
 
       # ------------------------------------------------------------------
-      # Auto-Patch Manual Hook ReSukiSU (fs/exec.c)
+      # Auto-Patch Manual Hooks ReSukiSU (fs/exec.c & fs/open.c)
       # ------------------------------------------------------------------
-      - name: Auto-patch ReSukiSU Hook
+      - name: Auto-patch ReSukiSU Hooks
         working-directory: kernel
         run: |
           python3 -c '
           import os
 
+          # 1. Patch fs/exec.c (ksu_handle_execveat)
           exec_path = "fs/exec.c"
           if os.path.exists(exec_path):
               with open(exec_path, "r") as f:
                   code = f.read()
-              
               if "ksu_handle_execveat" not in code:
                   target = "static int do_execveat_common"
                   idx = code.find(target)
@@ -265,17 +265,39 @@ jobs:
                           code = code[:idx] + declaration + code[idx:brace_idx+1] + call_code + code[brace_idx+1:]
                           with open(exec_path, "w") as f:
                               f.write(code)
-                          print("[SUCCESS] fs/exec.c successfully auto-patched for ReSukiSU!")
-                      else:
-                          print("[ERROR] Opening brace for do_execveat_common not found.")
-                  else:
-                      print("[ERROR] do_execveat_common function not found in fs/exec.c.")
+                          print("[SUCCESS] fs/exec.c successfully patched!")
               else:
-                  print("[INFO] fs/exec.c already contains ksu_handle_execveat hook.")
-          else:
-              print("[ERROR] fs/exec.c not found!")
-          '
+                  print("[INFO] fs/exec.c already contains ksu_handle_execveat.")
 
+          # 2. Patch fs/open.c (ksu_handle_faccessat)
+          open_path = "fs/open.c"
+          if os.path.exists(open_path):
+              with open(open_path, "r") as f:
+                  code = f.read()
+              if "ksu_handle_faccessat" not in code:
+                  # Mencari tempat injeksi di do_faccessat / faccessat
+                  target = "long do_faccessat"
+                  if target not in code:
+                      target = "SYSCALL_DEFINE3(faccessat"
+                  
+                  idx = code.find(target)
+                  if idx != -1:
+                      brace_idx = code.find("{", idx)
+                      if brace_idx != -1:
+                          declaration = "\n#ifdef CONFIG_KSU\nextern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *flags);\n#endif\n"
+                          call_code = "\n    #ifdef CONFIG_KSU\n    ksu_handle_faccessat(&dfd, &filename, &mode, NULL);\n    #endif\n"
+                          code = code[:idx] + declaration + code[idx:brace_idx+1] + call_code + code[brace_idx+1:]
+                          with open(open_path, "w") as f:
+                              f.write(code)
+                          print("[SUCCESS] fs/open.c successfully patched!")
+                      else:
+                          print("[ERROR] Opening brace for faccessat not found in fs/open.c.")
+                  else:
+                      print("[ERROR] faccessat function target not found in fs/open.c.")
+              else:
+                  print("[INFO] fs/open.c already contains ksu_handle_faccessat.")
+          '
+          
       # ------------------------------------------------------------------
       # 9. Build kernel
       # ------------------------------------------------------------------
