@@ -1,0 +1,237 @@
+name: Build Kirisakura Kernel (ReSukiSU)
+
+on:
+  workflow_dispatch:
+    inputs:
+      KERNEL_REPO:
+        description: "Repo source kernel (fork kamu)"
+        required: true
+        default: "nevadamurdock/Kirisakura_ANAKIN_ROG5"
+      KERNEL_BRANCH:
+        description: "Branch kernel"
+        required: true
+        default: "master_release_t_1"
+      DEFCONFIG:
+        description: "Nama defconfig"
+        required: true
+        default: "kirisakura_defconfig"
+      LOCALVERSION:
+        description: "Suffix nama kernel (CONFIG_LOCALVERSION)"
+        required: true
+        default: "-GusKernel"
+      KSU_MODE:
+        description: "Mode integrasi ReSukiSU"
+        required: true
+        type: choice
+        default: "manual_hook"
+        options:
+          - manual_hook   # inline hook (CONFIG_KSU_MANUAL_HOOK=y)
+          - susfs         # KSU + SUSFS (CONFIG_KSU_SUSFS=y)
+      SUSFS_BRANCH:
+        description: "Branch susfs4ksu yang cocok dengan versi kernel (hanya dipakai jika KSU_MODE=susfs), contoh: gki-android12-5.4"
+        required: false
+        default: "gki-android12-5.4"
+      CLANG_TAG:
+        description: "Tag prebuilt Clang AOSP (Clang 14.0.7 = clang-r450784d)"
+        required: true
+        default: "clang-r450784d"
+
+env:
+  ARCH: arm64
+  SUBARCH: arm64
+  OUT_DIR: out
+  KBUILD_BUILD_USER: "GusKernel"
+  KBUILD_BUILD_HOST: "github-actions"
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      # ------------------------------------------------------------------
+      # 1. Checkout kernel source (fork kamu)
+      # ------------------------------------------------------------------
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.inputs.KERNEL_REPO }}
+          ref: ${{ github.event.inputs.KERNEL_BRANCH }}
+          path: kernel
+          fetch-depth: 1
+
+      # ------------------------------------------------------------------
+      # 2. Install dependency build (paket standar build kernel Android)
+      # ------------------------------------------------------------------
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison flex libssl-dev libelf-dev \
+            build-essential kmod cpio rsync \
+            python3 python3-pip git curl zip unzip \
+            device-tree-compiler
+
+      # ------------------------------------------------------------------
+      # 3. Ambil toolchain Clang 14.0.7 (AOSP prebuilt resmi, tag: clang-r450784d)
+      #    Sparse-checkout supaya tidak perlu clone seluruh monorepo prebuilts/clang
+      # ------------------------------------------------------------------
+      - name: Fetch Clang 14.0.7 toolchain
+        run: |
+          mkdir -p toolchain/clang
+          cd toolchain/clang
+          git clone --filter=blob:none --no-checkout --depth 1 \
+            --branch "${{ github.event.inputs.CLANG_TAG }}" \
+            https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 clang-src
+          cd clang-src
+          git sparse-checkout init --cone
+          git sparse-checkout set "${{ github.event.inputs.CLANG_TAG }}"
+          git checkout
+          echo "CLANG_DIR=$(pwd)/${{ github.event.inputs.CLANG_TAG }}" >> "$GITHUB_ENV"
+
+      # ------------------------------------------------------------------
+      # 4. Ambil GCC prebuilt untuk CROSS_COMPILE (aarch64) & CROSS_COMPILE_ARM32
+      #    (dibutuhkan untuk binutils/assembler pada kernel non-GKI lama)
+      # ------------------------------------------------------------------
+      - name: Fetch GCC aarch64 & arm prebuilts
+        run: |
+          mkdir -p toolchain/gcc
+          cd toolchain/gcc
+          git clone --depth 1 \
+            https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 aarch64
+          git clone --depth 1 \
+            https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 arm
+          echo "GCC64_DIR=$(pwd)/aarch64" >> "$GITHUB_ENV"
+          echo "GCC32_DIR=$(pwd)/arm" >> "$GITHUB_ENV"
+
+      - name: Export toolchain PATH
+        run: |
+          echo "$CLANG_DIR/bin" >> "$GITHUB_PATH"
+          echo "$GCC64_DIR/bin" >> "$GITHUB_PATH"
+          echo "$GCC32_DIR/bin" >> "$GITHUB_PATH"
+
+      # ------------------------------------------------------------------
+      # 5. Integrasikan ReSukiSU ke source tree
+      # ------------------------------------------------------------------
+      - name: Setup ReSukiSU
+        working-directory: kernel
+        run: |
+          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
+
+      # ------------------------------------------------------------------
+      # 6. (Opsional) SUSFS - hanya jalan kalau KSU_MODE = susfs
+      #    Sesuaikan lagi patch path-nya kalau struktur folder susfs berubah,
+      #    karena tiap versi kernel butuh patch kernel-side yang berbeda.
+      # ------------------------------------------------------------------
+      - name: Apply SUSFS patch (jika dipilih)
+        if: ${{ github.event.inputs.KSU_MODE == 'susfs' }}
+        working-directory: kernel
+        run: |
+          git clone --depth 1 -b "${{ github.event.inputs.SUSFS_BRANCH }}" \
+            https://gitlab.com/simonpunk/susfs4ksu.git ../susfs4ksu
+
+          # Copy patch kernel-side sesuai versi kernel (contoh untuk 5.4)
+          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-*.patch ./susfs_kernel.patch || true
+          cp -r ../susfs4ksu/kernel_patches/fs/* ./fs/ || true
+          cp -r ../susfs4ksu/kernel_patches/include/linux/* ./include/linux/ || true
+
+          if [ -f ./susfs_kernel.patch ]; then
+            patch -p1 < ./susfs_kernel.patch
+          else
+            echo "PERINGATAN: patch susfs tidak ditemukan otomatis, cek struktur folder susfs4ksu branch ${{ github.event.inputs.SUSFS_BRANCH }} dan sesuaikan step ini manual."
+          fi
+
+      # ------------------------------------------------------------------
+      # 7. (Opsional) Inline / Manual Hook - hanya jalan kalau KSU_MODE = manual_hook
+      #    ReSukiSU tidak menyisipkan manual hook otomatis, patch hook harus
+      #    ditaruh sendiri di repo (misal: patches/manual_hook.patch) mengikuti
+      #    https://resukisu.github.io/guide/manual-integrate.html
+      # ------------------------------------------------------------------
+      - name: Apply manual/inline hook patch (jika tersedia)
+        if: ${{ github.event.inputs.KSU_MODE == 'manual_hook' }}
+        working-directory: kernel
+        run: |
+          if [ -f ./patches/manual_hook.patch ]; then
+            patch -p1 < ./patches/manual_hook.patch
+          else
+            echo "INFO: tidak ada patches/manual_hook.patch di repo."
+            echo "Silakan tambahkan hook manual sesuai guide ReSukiSU (execve/faccessat/dst) ke file:"
+            echo " - fs/exec.c, fs/open.c, fs/read_write.c, fs/stat.c, drivers/input/input.c"
+            echo "lalu commit patch tsb sebagai patches/manual_hook.patch agar step ini otomatis jalan."
+          fi
+
+      # ------------------------------------------------------------------
+      # 8. Edit defconfig: LOCALVERSION + toggle CONFIG_KSU sesuai mode
+      # ------------------------------------------------------------------
+      - name: Patch defconfig
+        working-directory: kernel
+        run: |
+          DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.DEFCONFIG }}"
+
+          # --- Localversion custom ---
+          if grep -q "^CONFIG_LOCALVERSION=" "$DEFCONFIG_PATH"; then
+            sed -i "s|^CONFIG_LOCALVERSION=.*|CONFIG_LOCALVERSION=\"${{ github.event.inputs.LOCALVERSION }}\"|" "$DEFCONFIG_PATH"
+          else
+            echo "CONFIG_LOCALVERSION=\"${{ github.event.inputs.LOCALVERSION }}\"" >> "$DEFCONFIG_PATH"
+          fi
+
+          if grep -q "^CONFIG_LOCALVERSION_AUTO=" "$DEFCONFIG_PATH"; then
+            sed -i "s|^CONFIG_LOCALVERSION_AUTO=.*|CONFIG_LOCALVERSION_AUTO=n|" "$DEFCONFIG_PATH"
+          else
+            echo "# CONFIG_LOCALVERSION_AUTO is not set" >> "$DEFCONFIG_PATH"
+          fi
+
+          # --- ReSukiSU base ---
+          echo "" >> "$DEFCONFIG_PATH"
+          echo "# ReSukiSU" >> "$DEFCONFIG_PATH"
+          echo "CONFIG_KSU=y" >> "$DEFCONFIG_PATH"
+
+          if [ "${{ github.event.inputs.KSU_MODE }}" = "susfs" ]; then
+            echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG_PATH"
+          else
+            echo "CONFIG_KSU_MANUAL_HOOK=y" >> "$DEFCONFIG_PATH"
+          fi
+
+          echo "----- Isi akhir defconfig (bagian bawah) -----"
+          tail -n 15 "$DEFCONFIG_PATH"
+
+      # ------------------------------------------------------------------
+      # 9. Build kernel
+      # ------------------------------------------------------------------
+      - name: Build kernel
+        working-directory: kernel
+        run: |
+          export CROSS_COMPILE=aarch64-linux-android-
+          export CROSS_COMPILE_ARM32=arm-linux-androideabi-
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export KCFLAGS="-O3"
+
+          make O=${OUT_DIR} ARCH=${ARCH} CC=clang "${{ github.event.inputs.DEFCONFIG }}"
+
+          make -j$(nproc --all) O=${OUT_DIR} ARCH=${ARCH} \
+            CC=clang \
+            CROSS_COMPILE=${CROSS_COMPILE} \
+            CROSS_COMPILE_ARM32=${CROSS_COMPILE_ARM32} \
+            CLANG_TRIPLE=${CLANG_TRIPLE} \
+            LD=ld.lld AR=llvm-ar NM=llvm-nm \
+            OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+            KCFLAGS="${KCFLAGS}"
+
+      # ------------------------------------------------------------------
+      # 10. Kumpulkan output (Image / Image.gz-dtb / dtb)
+      # ------------------------------------------------------------------
+      - name: Collect build output
+        run: |
+          mkdir -p output
+          for f in kernel/${OUT_DIR}/arch/arm64/boot/Image \
+                   kernel/${OUT_DIR}/arch/arm64/boot/Image.gz \
+                   kernel/${OUT_DIR}/arch/arm64/boot/Image.gz-dtb \
+                   kernel/${OUT_DIR}/arch/arm64/boot/dtb.img; do
+            [ -f "$f" ] && cp "$f" output/ || true
+          done
+          ls -la output
+
+      - name: Upload kernel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GusKernel-${{ github.event.inputs.KSU_MODE }}-${{ github.run_number }}
+          path: output/*
+          if-no-files-found: error
