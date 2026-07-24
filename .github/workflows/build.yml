@@ -182,7 +182,7 @@ jobs:
           '
 
       # ------------------------------------------------------------------
-      # 6. MODE B: SUSFS v2.1.0 Patching (Ekstrak ZIP B0TMV.zip)
+      # 6. MODE B: SUSFS v2.1.0 Patching (Fix Handled Dynamically)
       # ------------------------------------------------------------------
       - name: Apply SUSFS Backport Patch
         if: ${{ github.event.inputs.KSU_MODE == 'susfs' }}
@@ -192,21 +192,36 @@ jobs:
           curl -sL "${{ github.event.inputs.PATCH_ZIP_URL }}" -o susfs_pack.zip
           unzip -q susfs_pack.zip -d susfs_tmp/
 
-          echo "📂 Copying SUSFS files..."
-          # Copas file dari ZIP ke source tree kernel
+          echo "📂 Copying SUSFS source files..."
           cp -r susfs_tmp/fs/* ./fs/ || true
           cp -r susfs_tmp/include/linux/* ./include/linux/ || true
 
-          echo "🛠️ Patching KernelSU Driver for SUSFS..."
-          KSU_DIR="KernelSU"
-          [ -d "drivers/kernelsu" ] && KSU_DIR="drivers/kernelsu"
-          if [ -f "susfs_tmp/KernelSU_patches/10_enable_susfs_for_ksu.patch" ]; then
-            patch -p1 -d $KSU_DIR < susfs_tmp/KernelSU_patches/10_enable_susfs_for_ksu.patch || true
+          echo "🛠️ Wire SUSFS Build System (fs/Makefile & fs/Kconfig)..."
+          # Injeksi obj-$(CONFIG_SUSFS) ke fs/Makefile jika belum ada
+          if ! grep -q "obj-\$(CONFIG_SUSFS)" fs/Makefile; then
+            echo 'obj-$(CONFIG_SUSFS) += susfs.o' >> fs/Makefile
           fi
 
-          echo "🛠️ Patching Kernel Tree (50_add_susfs_2.1.0_in_kernel-5.4.patch)..."
+          # Injeksi source "fs/susfs_Kconfig" ke fs/Kconfig jika belum ada
+          if ! grep -q 'source "fs/susfs_Kconfig"' fs/Kconfig; then
+            sed -i '/endmenu/i source "fs/susfs_Kconfig"' fs/Kconfig
+          fi
+
+          echo "🛠️ Patching ReSukiSU Driver for SUSFS..."
+          KSU_DIR="KernelSU"
+          [ -d "drivers/kernelsu" ] && KSU_DIR="drivers/kernelsu"
+          
+          # Coba patch dengan -p1, jika gagal coba -p2 / -p0 secara otomatis
+          if [ -f "susfs_tmp/KernelSU_patches/10_enable_susfs_for_ksu.patch" ]; then
+            patch -p1 -d $KSU_DIR < susfs_tmp/KernelSU_patches/10_enable_susfs_for_ksu.patch || \
+            patch -p2 -d $KSU_DIR < susfs_tmp/KernelSU_patches/10_enable_susfs_for_ksu.patch || \
+            patch -p0 -d $KSU_DIR < susfs_tmp/KernelSU_patches/10_enable_susfs_for_ksu.patch || true
+          fi
+
+          echo "🛠️ Applying Core Kernel Patch (50_add_susfs_2.1.0_in_kernel-5.4.patch)..."
           if [ -f "susfs_tmp/50_add_susfs_2.1.0_in_kernel-5.4.patch" ]; then
-            patch -p1 < susfs_tmp/50_add_susfs_2.1.0_in_kernel-5.4.patch || true
+            # Menggunakan flag --ignore-whitespace untuk fleksibilitas
+            patch -p1 --ignore-whitespace < susfs_tmp/50_add_susfs_2.1.0_in_kernel-5.4.patch || true
           fi
 
           rm -rf susfs_tmp susfs_pack.zip
