@@ -30,7 +30,7 @@ on:
       PATCH_ZIP_URL:
         description: "URL Direct download patch backport SUSFS"
         required: false
-        default: "https://uploader.sh/Rrqlv/B0TMV.zip"
+        default: "https://uploader.sh/q0jRs/mbut.zip"
       CLANG_TAG:
         description: "Tag prebuilt Clang AOSP"
         required: true
@@ -182,50 +182,49 @@ jobs:
           '
 
       # ------------------------------------------------------------------
-      # 6. MODE B: SUSFS v2.1.0 Patching (Clean Isolated Patching)
+      # 6. MODE B: SUSFS v2.2.0 Patching (Original 5.4 + Backport v2.2.0)
       # ------------------------------------------------------------------
-      - name: Apply SUSFS Patch (Original 5.4 + Backport 2.1.0)
+      - name: Apply SUSFS Patch (Original 5.4 + Backport v2.2.0)
         if: ${{ github.event.inputs.KSU_MODE == 'susfs' }}
         working-directory: kernel
         run: |
-          echo "⬇️ 1. Cloning Official SUSFS 5.4 Repo for Base Patch..."
+          echo "⬇️ 1. Cloning Official SUSFS 5.4 Repo for Base Hooks..."
           git clone --depth 1 -b kernel-5.4 https://gitlab.com/simonpunk/susfs4ksu.git ../susfs_official
 
-          echo "🛠️ 2. Applying Original Kernel 5.4 Base Hooks (Core Kernel)..."
-          # Gunakan patch 50_add_susfs_in_kernel-5.4.patch dengan flag32 agar melompati error fatal
+          echo "🛠️ 2. Applying Original Kernel 5.4 Base Hooks..."
           if [ -f "../susfs_official/kernel_patches/50_add_susfs_in_kernel-5.4.patch" ]; then
             patch -p1 --ignore-whitespace -N -s < ../susfs_official/kernel_patches/50_add_susfs_in_kernel-5.4.patch || true
           fi
 
-          echo "⬇️ 3. Downloading SUSFS v2.1.0 Backport Package..."
+          echo "⬇️ 3. Downloading SUSFS v2.2.0 Package..."
           curl -sL "${{ github.event.inputs.PATCH_ZIP_URL }}" -o susfs_pack.zip
           unzip -q susfs_pack.zip -d susfs_tmp/
 
-          echo "📂 4. Overriding Core SUSFS Files with v2.1.0..."
+          echo "📂 4. Copying SUSFS v2.2.0 Source Files (including susfs_def.h)..."
           cp -rf susfs_tmp/fs/* ./fs/ || true
+          # Ini akan otomatis menyalin susfs.h dan susfs_def.h ke include/linux/
           cp -rf susfs_tmp/include/linux/* ./include/linux/ || true
 
-          echo "🛠️ 5. Applying SUSFS v2.1.0 Backport Patch..."
-          if [ -f "susfs_tmp/50_add_susfs_2.1.0_in_kernel-5.4.patch" ]; then
-            patch -p1 --ignore-whitespace -N -s < susfs_tmp/50_add_susfs_2.1.0_in_kernel-5.4.patch || true
+          echo "🛠️ 5. Applying SUSFS v2.2.0 Core Kernel Patch..."
+          if [ -f "susfs_tmp/50_add_susfs_2.2.0_in_kernel-5.4.patch" ]; then
+            patch -p1 --ignore-whitespace -N -s < susfs_tmp/50_add_susfs_2.2.0_in_kernel-5.4.patch || true
           fi
 
-          echo "🛠️ 6. Patching ReSukiSU Driver specifically..."
+          echo "🛠️ 6. Patching ReSukiSU Driver for SUSFS v2.2.0..."
           KSU_DIR="KernelSU"
           [ -d "drivers/kernelsu" ] && KSU_DIR="drivers/kernelsu"
 
-          # Eksekusi patch ReSukiSU LANGSUNG dari root kernel tanpa -d agar path 'kernel/' / 'drivers/kernelsu/' dalam patch terbaca presisi
-          if [ -f "susfs_tmp/KernelSU_patches/10_enable_susfs_for_ksu.patch" ]; then
-            echo "Applying 10_enable_susfs_for_ksu.patch..."
-            # Jika ReSukiSU berada di folder 'KernelSU', sesuaikan path patch terlebih dahulu
+          PATCH_KSU="susfs_tmp/KernelSU_patches/10_enable_susfs_for_ksu.patch"
+          if [ -f "$PATCH_KSU" ]; then
+            echo "Applying $PATCH_KSU..."
             if [ "$KSU_DIR" = "KernelSU" ]; then
-              sed -i 's|a/kernel/|a/KernelSU/kernel/|g' susfs_tmp/KernelSU_patches/10_enable_susfs_for_ksu.patch
-              sed -i 's|b/kernel/|b/KernelSU/kernel/|g' susfs_tmp/KernelSU_patches/10_enable_susfs_for_ksu.patch
+              sed -i 's|a/kernel/|a/KernelSU/kernel/|g' "$PATCH_KSU"
+              sed -i 's|b/kernel/|b/KernelSU/kernel/|g' "$PATCH_KSU"
             fi
-            patch -p1 --ignore-whitespace -N < susfs_tmp/KernelSU_patches/10_enable_susfs_for_ksu.patch || true
+            patch -p1 --ignore-whitespace -N < "$PATCH_KSU" || true
           fi
 
-          echo "🛠️ 7. Wiring Build System (fs/Makefile & fs/Kconfig)..."
+          echo "🛠️ 7. Wiring Up Build System (fs/Makefile & fs/Kconfig)..."
           if ! grep -q "obj-\$(CONFIG_SUSFS)" fs/Makefile; then
             echo 'obj-$(CONFIG_SUSFS) += susfs.o' >> fs/Makefile
           fi
