@@ -71,15 +71,14 @@ jobs:
             device-tree-compiler
 
       # ------------------------------------------------------------------
-      # 3. Ambil toolchain Clang 14.0.7 (AOSP prebuilt resmi, tag: clang-r450784d)
-      #    Sparse-checkout supaya tidak perlu clone seluruh monorepo prebuilts/clang
+      # 3. Ambil toolchain Clang 14.0.7 (AOSP prebuilt resmi)
+      #    Sparse-checkout untuk mengambil subfolder tag/versi terkait
       # ------------------------------------------------------------------
       - name: Fetch Clang 14.0.7 toolchain
         run: |
           mkdir -p toolchain/clang
           cd toolchain/clang
           git clone --filter=blob:none --no-checkout --depth 1 \
-            --branch "${{ github.event.inputs.CLANG_TAG }}" \
             https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 clang-src
           cd clang-src
           git sparse-checkout init --cone
