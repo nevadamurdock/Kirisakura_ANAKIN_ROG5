@@ -362,7 +362,7 @@ jobs:
             "${{ github.event.inputs.DEFCONFIG }}"
 
           # 3. Make Kernel Image
-          make -j$(nproc --all) O=${OUT_DIR} ARCH=${ARCH} \
+          make -j1 O=${OUT_DIR} ARCH=${ARCH} \
             CROSS_COMPILE=${CROSS_COMPILE} \
             CROSS_COMPILE_ARM32=${CROSS_COMPILE_ARM32} \
             CLANG_TRIPLE=${CLANG_TRIPLE} \
