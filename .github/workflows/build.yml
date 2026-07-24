@@ -224,7 +224,21 @@ jobs:
           echo "=== Check Clang ==="
           ls -la "$CLANG_DIR/bin/clang" || echo "Clang missing!"
           echo "=== Check GCC 64 ==="
-          ls -la "$GCC64_DIR/bin/" | grep ld || echo "GCC 64 ld missing!"    
+          ls -la "$GCC64_DIR/bin/" | grep ld || echo "GCC 64 ld missing!" 
+
+      # ------------------------------------------------------------------
+      # Fix: Inject Wireguard jika belum ada di source tree
+      # ------------------------------------------------------------------
+      - name: Setup WireGuard source
+        working-directory: kernel
+        run: |
+          if [ ! -d "net/wireguard" ] || [ ! -f "net/wireguard/Kconfig" ]; then
+            echo "WireGuard tidak ditemukan, mengunduh Wireguard-linux-compat..."
+            rm -rf net/wireguard
+            git clone --depth 1 https://git.zx2c4.com/wireguard-linux-compat net/wireguard_tmp
+            mv net/wireguard_tmp/src net/wireguard
+            rm -rf net/wireguard_tmp
+          fi    
 
       # ------------------------------------------------------------------
       # 9. Build kernel
