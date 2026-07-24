@@ -182,7 +182,7 @@ jobs:
           '
 
       # ------------------------------------------------------------------
-      # 6. MODE B: SUSFS v2.2.0 Patching (Original 5.4 + Backport v2.2.0)
+      # 6. MODE B: SUSFS v2.2.0 Patching (Clean Directory Targeting)
       # ------------------------------------------------------------------
       - name: Apply SUSFS Patch (Original 5.4 + Backport v2.2.0)
         if: ${{ github.event.inputs.KSU_MODE == 'susfs' }}
@@ -191,7 +191,7 @@ jobs:
           echo "⬇️ 1. Cloning Official SUSFS 5.4 Repo for Base Hooks..."
           git clone --depth 1 -b kernel-5.4 https://gitlab.com/simonpunk/susfs4ksu.git ../susfs_official
 
-          echo "🛠️ 2. Applying Original Kernel 5.4 Base Hooks..."
+          echo "🛠️ 2. Applying Original Kernel 5.4 Base Hooks (Core Kernel)..."
           if [ -f "../susfs_official/kernel_patches/50_add_susfs_in_kernel-5.4.patch" ]; then
             patch -p1 --ignore-whitespace -N -s < ../susfs_official/kernel_patches/50_add_susfs_in_kernel-5.4.patch || true
           fi
@@ -200,9 +200,8 @@ jobs:
           curl -sL "${{ github.event.inputs.PATCH_ZIP_URL }}" -o susfs_pack.zip
           unzip -q susfs_pack.zip -d susfs_tmp/
 
-          echo "📂 4. Copying SUSFS v2.2.0 Source Files (including susfs_def.h)..."
+          echo "📂 4. Copying SUSFS v2.2.0 Source Files..."
           cp -rf susfs_tmp/fs/* ./fs/ || true
-          # Ini akan otomatis menyalin susfs.h dan susfs_def.h ke include/linux/
           cp -rf susfs_tmp/include/linux/* ./include/linux/ || true
 
           echo "🛠️ 5. Applying SUSFS v2.2.0 Core Kernel Patch..."
@@ -210,18 +209,24 @@ jobs:
             patch -p1 --ignore-whitespace -N -s < susfs_tmp/50_add_susfs_2.2.0_in_kernel-5.4.patch || true
           fi
 
-          echo "🛠️ 6. Patching ReSukiSU Driver for SUSFS v2.2.0..."
-          KSU_DIR="KernelSU"
-          [ -d "drivers/kernelsu" ] && KSU_DIR="drivers/kernelsu"
+          echo "🛠️ 6. Patching ReSukiSU Driver Specifically..."
+          # Deteksi lokasi lokasi folder ReSukiSU/KernelSU
+          KSU_DIR=""
+          if [ -d "KernelSU" ]; then
+            KSU_DIR="KernelSU"
+          elif [ -d "drivers/kernelsu" ]; then
+            KSU_DIR="drivers/kernelsu"
+          fi
 
-          PATCH_KSU="susfs_tmp/KernelSU_patches/10_enable_susfs_for_ksu.patch"
-          if [ -f "$PATCH_KSU" ]; then
-            echo "Applying $PATCH_KSU..."
-            if [ "$KSU_DIR" = "KernelSU" ]; then
-              sed -i 's|a/kernel/|a/KernelSU/kernel/|g' "$PATCH_KSU"
-              sed -i 's|b/kernel/|b/KernelSU/kernel/|g' "$PATCH_KSU"
-            fi
-            patch -p1 --ignore-whitespace -N < "$PATCH_KSU" || true
+          PATCH_KSU="$(pwd)/susfs_tmp/KernelSU_patches/10_enable_susfs_for_ksu.patch"
+
+          if [ -n "$KSU_DIR" ] && [ -f "$PATCH_KSU" ]; then
+            echo "Applying $PATCH_KSU inside $KSU_DIR..."
+            cd "$KSU_DIR"
+            # Eksekusi patch langsung DARI DALAM folder ReSukiSU
+            patch -p1 --ignore-whitespace -N < "$PATCH_KSU" || \
+            patch -p0 --ignore-whitespace -N < "$PATCH_KSU" || true
+            cd ..
           fi
 
           echo "🛠️ 7. Wiring Up Build System (fs/Makefile & fs/Kconfig)..."
