@@ -241,7 +241,7 @@ jobs:
           fi    
 
       # ------------------------------------------------------------------
-      # Auto-Patch Manual Hooks ReSukiSU (fs/exec.c, fs/open.c, fs/stat.c)
+      # Auto-Patch Manual Hooks ReSukiSU (exec, open, stat, newfstat)
       # ------------------------------------------------------------------
       - name: Auto-patch ReSukiSU Hooks
         working-directory: kernel
@@ -266,8 +266,6 @@ jobs:
                           with open(exec_path, "w") as f:
                               f.write(code)
                           print("[SUCCESS] fs/exec.c patched!")
-              else:
-                  print("[INFO] fs/exec.c already contains ksu_handle_execveat.")
 
           # 2. Patch fs/open.c (ksu_handle_faccessat)
           open_path = "fs/open.c"
@@ -288,15 +286,17 @@ jobs:
                           with open(open_path, "w") as f:
                               f.write(code)
                           print("[SUCCESS] fs/open.c patched!")
-              else:
-                  print("[INFO] fs/open.c already contains ksu_handle_faccessat.")
 
-          # 3. Patch fs/stat.c (ksu_handle_stat)
+          # 3. Patch fs/stat.c (ksu_handle_stat & ksu_handle_newfstat_ret)
           stat_path = "fs/stat.c"
           if os.path.exists(stat_path):
               with open(stat_path, "r") as f:
                   code = f.read()
-              if "ksu_handle_stat" not in code:
+              
+              need_stat = "ksu_handle_stat" not in code
+              need_newfstat = "ksu_handle_newfstat_ret" not in code
+              
+              if need_stat or need_newfstat:
                   target = "int vfs_statx"
                   if target not in code:
                       target = "vfs_fstatat"
@@ -304,14 +304,12 @@ jobs:
                   if idx != -1:
                       brace_idx = code.find("{", idx)
                       if brace_idx != -1:
-                          declaration = "\n#ifdef CONFIG_KSU\nextern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);\n#endif\n"
-                          call_code = "\n    #ifdef CONFIG_KSU\n    ksu_handle_stat(&dfd, &filename, &flags);\n    #endif\n"
+                          declaration = "\n#ifdef CONFIG_KSU\nextern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);\nextern int ksu_handle_newfstat_ret(struct kstat *stat);\n#endif\n"
+                          call_code = "\n    #ifdef CONFIG_KSU\n    ksu_handle_stat(&dfd, &filename, &flags);\n    ksu_handle_newfstat_ret(stat);\n    #endif\n"
                           code = code[:idx] + declaration + code[idx:brace_idx+1] + call_code + code[brace_idx+1:]
                           with open(stat_path, "w") as f:
                               f.write(code)
-                          print("[SUCCESS] fs/stat.c patched!")
-              else:
-                  print("[INFO] fs/stat.c already contains ksu_handle_stat.")
+                          print("[SUCCESS] fs/stat.c patched for stat and newfstat_ret!")
           '
           
       # ------------------------------------------------------------------
