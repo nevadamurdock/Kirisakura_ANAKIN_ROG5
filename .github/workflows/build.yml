@@ -25,14 +25,14 @@ on:
         type: choice
         default: "manual_hook"
         options:
-          - manual_hook   # inline hook (CONFIG_KSU_MANUAL_HOOK=y)
-          - susfs         # KSU + SUSFS (CONFIG_KSU_SUSFS=y)
-      SUSFS_BRANCH:
-        description: "Branch susfs4ksu yang cocok dengan kernel ini (non-GKI CAF 5.4 -> pakai 'kernel-5.4')"
+          - manual_hook   # Manual / Inline hook standar
+          - susfs         # ReSukiSU + SUSFS 2.1.0 (Backport 5.4)
+      PATCH_ZIP_URL:
+        description: "URL Direct download patch backport SUSFS"
         required: false
-        default: "kernel-5.4"
+        default: "https://uploader.sh/Rrqlv/B0TMV.zip"
       CLANG_TAG:
-        description: "Tag prebuilt Clang AOSP (Clang 14.0.7 = clang-r450784d)"
+        description: "Tag prebuilt Clang AOSP"
         required: true
         default: "clang-r450784d"
 
@@ -48,7 +48,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       # ------------------------------------------------------------------
-      # 1. Checkout kernel source (fork kamu)
+      # 1. Checkout Kernel Source
       # ------------------------------------------------------------------
       - name: Checkout kernel source
         uses: actions/checkout@v4
@@ -59,7 +59,7 @@ jobs:
           fetch-depth: 1
 
       # ------------------------------------------------------------------
-      # 2. Install dependency build (paket standar build kernel Android)
+      # 2. Install Build Dependencies
       # ------------------------------------------------------------------
       - name: Install dependencies
         run: |
@@ -71,49 +71,25 @@ jobs:
             device-tree-compiler
 
       # ------------------------------------------------------------------
-      # 3. Ambil toolchain Clang 14.0.7 (via SourceForge Git)
+      # 3. Fetch Toolchains (Clang & GCC)
       # ------------------------------------------------------------------
-      - name: Fetch Clang 14.0.7 toolchain
+      - name: Fetch Clang Toolchain
         run: |
           mkdir -p $GITHUB_WORKSPACE/toolchain/clang
-          cd $GITHUB_WORKSPACE/toolchain/clang
-
-          # Clone repository dari SourceForge langsung ke folder clang-src
-          git clone --depth 1 https://git.code.sf.net/p/clang-r450784d/code clang-src
-
+          git clone --depth 1 https://git.code.sf.net/p/clang-r450784d/code $GITHUB_WORKSPACE/toolchain/clang/clang-src
           echo "CLANG_DIR=$GITHUB_WORKSPACE/toolchain/clang/clang-src" >> "$GITHUB_ENV"
 
-      # ------------------------------------------------------------------
-      # 4. Ambil GCC prebuilt untuk CROSS_COMPILE (aarch64 & arm)
-      # ------------------------------------------------------------------
-      - name: Fetch GCC aarch64 & arm prebuilts
+      - name: Fetch GCC Toolchains
         run: |
           mkdir -p $GITHUB_WORKSPACE/toolchain/gcc
-          
-          # Clone GCC 64-bit (aarch64) dari mirror LineageOS
-          git clone --depth 1 \
-            https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git \
-            $GITHUB_WORKSPACE/toolchain/gcc/aarch64
-            
-          # Clone GCC 32-bit (arm) dari mirror LineageOS
-          git clone --depth 1 \
-            https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git \
-            $GITHUB_WORKSPACE/toolchain/gcc/arm
+          git clone --depth 1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git $GITHUB_WORKSPACE/toolchain/gcc/aarch64
+          git clone --depth 1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git $GITHUB_WORKSPACE/toolchain/gcc/arm
 
           echo "GCC64_DIR=$GITHUB_WORKSPACE/toolchain/gcc/aarch64" >> "$GITHUB_ENV"
           echo "GCC32_DIR=$GITHUB_WORKSPACE/toolchain/gcc/arm" >> "$GITHUB_ENV"
-          
-      # ------------------------------------------------------------------
-      # Export toolchain PATH
-      # ------------------------------------------------------------------
-      - name: Export toolchain PATH
-        run: |
-          echo "$CLANG_DIR/bin" >> "$GITHUB_PATH"
-          echo "$GCC64_DIR/bin" >> "$GITHUB_PATH"
-          echo "$GCC32_DIR/bin" >> "$GITHUB_PATH"
 
       # ------------------------------------------------------------------
-      # 5. Integrasikan ReSukiSU ke source tree
+      # 4. Integrasi ReSukiSU Base
       # ------------------------------------------------------------------
       - name: Setup ReSukiSU
         working-directory: kernel
@@ -121,135 +97,16 @@ jobs:
           curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
 
       # ------------------------------------------------------------------
-      # 6. (Opsional) SUSFS - hanya jalan kalau KSU_MODE = susfs
-      #    Sesuaikan lagi patch path-nya kalau struktur folder susfs berubah,
-      #    karena tiap versi kernel butuh patch kernel-side yang berbeda.
+      # 5. MODE A: Manual Hook (Inline Hook Auto-Fix)
       # ------------------------------------------------------------------
-      - name: Apply SUSFS patch (jika dipilih)
-        if: ${{ github.event.inputs.KSU_MODE == 'susfs' }}
-        working-directory: kernel
-        run: |
-          git clone --depth 1 -b "${{ github.event.inputs.SUSFS_BRANCH }}" \
-            https://gitlab.com/simonpunk/susfs4ksu.git ../susfs4ksu
-
-          # 1. Patch driver KernelSU (folder ini dibuat oleh setup.sh ReSukiSU di step sebelumnya)
-          #    supaya driver KSU support hook susfs
-          if [ -f ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ]; then
-            cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU/
-            cd KernelSU
-            patch -p1 < 10_enable_susfs_for_ksu.patch
-            cd ..
-          else
-            echo "PERINGATAN: 10_enable_susfs_for_ksu.patch tidak ditemukan, cek isi repo susfs4ksu branch ${{ github.event.inputs.SUSFS_BRANCH }}."
-          fi
-
-          # 2. Copy source tambahan susfs (fs/susfs.c, include/linux/susfs*.h, dll) ke kernel tree
-          cp -r ../susfs4ksu/kernel_patches/fs/* ./fs/ || true
-          cp -r ../susfs4ksu/kernel_patches/include/linux/* ./include/linux/ || true
-
-          # 3. Patch kernel-side sesuai versi (nama file mengikuti branch, contoh untuk kernel-5.4:
-          #    50_add_susfs_in_kernel-5.4.patch)
-          SUSFS_KERNEL_PATCH="../susfs4ksu/kernel_patches/50_add_susfs_in_${{ github.event.inputs.SUSFS_BRANCH }}.patch"
-          if [ -f "$SUSFS_KERNEL_PATCH" ]; then
-            patch -p1 < "$SUSFS_KERNEL_PATCH"
-          else
-            echo "PERINGATAN: patch kernel-side tidak ditemukan di path: $SUSFS_KERNEL_PATCH"
-            echo "Cek nama file asli di https://gitlab.com/simonpunk/susfs4ksu/-/tree/${{ github.event.inputs.SUSFS_BRANCH }}/kernel_patches lalu sesuaikan step ini."
-            exit 1
-          fi
-
-          echo "Catatan: jika ada hunk patch yang gagal (*.rej), kemungkinan besar karena struct"
-          echo "kernel Kirisakura sudah dimodifikasi (mis. android_kabi_reservedX hilang)."
-          echo "Perbaiki manual sesuai README susfs4ksu bagian kabi member."
-
-      # ------------------------------------------------------------------
-      # 7. (Opsional) Inline / Manual Hook - hanya jalan kalau KSU_MODE = manual_hook
-      #    ReSukiSU tidak menyisipkan manual hook otomatis, patch hook harus
-      #    ditaruh sendiri di repo (misal: patches/manual_hook.patch) mengikuti
-      #    https://resukisu.github.io/guide/manual-integrate.html
-      # ------------------------------------------------------------------
-      - name: Apply manual/inline hook patch (jika tersedia)
+      - name: Auto-patch ReSukiSU Manual Hooks
         if: ${{ github.event.inputs.KSU_MODE == 'manual_hook' }}
-        working-directory: kernel
-        run: |
-          if [ -f ./patches/manual_hook.patch ]; then
-            patch -p1 < ./patches/manual_hook.patch
-          else
-            echo "INFO: tidak ada patches/manual_hook.patch di repo."
-            echo "Silakan tambahkan hook manual sesuai guide ReSukiSU (execve/faccessat/dst) ke file:"
-            echo " - fs/exec.c, fs/open.c, fs/read_write.c, fs/stat.c, drivers/input/input.c"
-            echo "lalu commit patch tsb sebagai patches/manual_hook.patch agar step ini otomatis jalan."
-          fi
-
-      # ------------------------------------------------------------------
-      # 8. Edit defconfig: LOCALVERSION + toggle CONFIG_KSU sesuai mode
-      # ------------------------------------------------------------------
-      - name: Patch defconfig
-        working-directory: kernel
-        run: |
-          DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.DEFCONFIG }}"
-
-          # --- Localversion custom ---
-          if grep -q "^CONFIG_LOCALVERSION=" "$DEFCONFIG_PATH"; then
-            sed -i "s|^CONFIG_LOCALVERSION=.*|CONFIG_LOCALVERSION=\"${{ github.event.inputs.LOCALVERSION }}\"|" "$DEFCONFIG_PATH"
-          else
-            echo "CONFIG_LOCALVERSION=\"${{ github.event.inputs.LOCALVERSION }}\"" >> "$DEFCONFIG_PATH"
-          fi
-
-          if grep -q "^CONFIG_LOCALVERSION_AUTO=" "$DEFCONFIG_PATH"; then
-            sed -i "s|^CONFIG_LOCALVERSION_AUTO=.*|CONFIG_LOCALVERSION_AUTO=n|" "$DEFCONFIG_PATH"
-          else
-            echo "# CONFIG_LOCALVERSION_AUTO is not set" >> "$DEFCONFIG_PATH"
-          fi
-
-          # --- ReSukiSU base ---
-          echo "" >> "$DEFCONFIG_PATH"
-          echo "# ReSukiSU" >> "$DEFCONFIG_PATH"
-          echo "CONFIG_KSU=y" >> "$DEFCONFIG_PATH"
-
-          if [ "${{ github.event.inputs.KSU_MODE }}" = "susfs" ]; then
-            echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG_PATH"
-          else
-            echo "CONFIG_KSU_MANUAL_HOOK=y" >> "$DEFCONFIG_PATH"
-          fi
-
-          echo "----- Isi akhir defconfig (bagian bawah) -----"
-          tail -n 15 "$DEFCONFIG_PATH"
-
-      # ------------------------------------------------------------------
-      # Debug: Verifikasi isi folder Toolchain sebelum build
-      # ------------------------------------------------------------------
-      - name: Verify Toolchain Paths
-        run: |
-          echo "=== Check Clang ==="
-          ls -la "$CLANG_DIR/bin/clang" || echo "Clang missing!"
-          echo "=== Check GCC 64 ==="
-          ls -la "$GCC64_DIR/bin/" | grep ld || echo "GCC 64 ld missing!" 
-
-      # ------------------------------------------------------------------
-      # Fix: Inject Wireguard jika belum ada di source tree
-      # ------------------------------------------------------------------
-      - name: Setup WireGuard source
-        working-directory: kernel
-        run: |
-          if [ ! -d "net/wireguard" ] || [ ! -f "net/wireguard/Kconfig" ]; then
-            echo "WireGuard tidak ditemukan, mengunduh Wireguard-linux-compat..."
-            rm -rf net/wireguard
-            git clone --depth 1 https://git.zx2c4.com/wireguard-linux-compat net/wireguard_tmp
-            mv net/wireguard_tmp/src net/wireguard
-            rm -rf net/wireguard_tmp
-          fi    
-
-      # ------------------------------------------------------------------
-      # Auto-Patch Manual Hooks ReSukiSU (exec, open, stat & reboot)
-      # ------------------------------------------------------------------
-      - name: Auto-patch ReSukiSU Hooks
         working-directory: kernel
         run: |
           python3 -c '
           import os
 
-          # 1. Patch fs/exec.c (ksu_handle_execveat)
+          # 1. Patch fs/exec.c
           exec_path = "fs/exec.c"
           if os.path.exists(exec_path):
               with open(exec_path, "r") as f:
@@ -265,9 +122,8 @@ jobs:
                           code = code[:idx] + dec + code[idx:brace_idx+1] + call + code[brace_idx+1:]
                           with open(exec_path, "w") as f:
                               f.write(code)
-                          print("[SUCCESS] fs/exec.c patched!")
 
-          # 2. Patch fs/open.c (ksu_handle_faccessat)
+          # 2. Patch fs/open.c
           open_path = "fs/open.c"
           if os.path.exists(open_path):
               with open(open_path, "r") as f:
@@ -285,15 +141,13 @@ jobs:
                           code = code[:idx] + dec + code[idx:brace_idx+1] + call + code[brace_idx+1:]
                           with open(open_path, "w") as f:
                               f.write(code)
-                          print("[SUCCESS] fs/open.c patched!")
 
-          # 3. Patch fs/stat.c (ksu_handle_stat & stat ret)
+          # 3. Patch fs/stat.c (Fix C99 & Variable Types)
           stat_path = "fs/stat.c"
           if os.path.exists(stat_path):
               with open(stat_path, "r") as f:
                   code = f.read()
-              missing_hooks = [h for h in ["ksu_handle_stat", "ksu_handle_newfstat_ret", "ksu_handle_fstat64_ret"] if h not in code]
-              if missing_hooks:
+              if "ksu_handle_stat" not in code:
                   target = "int vfs_statx"
                   if target not in code:
                       target = "vfs_fstatat"
@@ -301,14 +155,13 @@ jobs:
                   if idx != -1:
                       brace_idx = code.find("{", idx)
                       if brace_idx != -1:
-                          dec = "\n#ifdef CONFIG_KSU\nextern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);\nextern int ksu_handle_newfstat_ret(struct kstat *stat);\nextern int ksu_handle_fstat64_ret(struct kstat *stat);\n#endif\n"
-                          call = "\n    #ifdef CONFIG_KSU\n    ksu_handle_stat(&dfd, &filename, &flags);\n    ksu_handle_newfstat_ret(stat);\n    ksu_handle_fstat64_ret(stat);\n    #endif\n"
+                          dec = "\n#ifdef CONFIG_KSU\nextern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);\n#endif\n"
+                          call = "\n    #ifdef CONFIG_KSU\n    ksu_handle_stat(&dfd, &filename, &flags);\n    #endif\n"
                           code = code[:idx] + dec + code[idx:brace_idx+1] + call + code[brace_idx+1:]
                           with open(stat_path, "w") as f:
                               f.write(code)
-                          print(f"[SUCCESS] fs/stat.c patched for: {missing_hooks}")
 
-          # 4. Patch kernel/reboot.c (ksu_handle_sys_reboot)
+          # 4. Patch kernel/reboot.c
           reboot_path = "kernel/reboot.c"
           if os.path.exists(reboot_path):
               with open(reboot_path, "r") as f:
@@ -326,23 +179,94 @@ jobs:
                           code = code[:idx] + dec + code[idx:brace_idx+1] + call + code[brace_idx+1:]
                           with open(reboot_path, "w") as f:
                               f.write(code)
-                          print("[SUCCESS] kernel/reboot.c patched!")
-              else:
-                  print("[INFO] kernel/reboot.c already contains ksu_handle_sys_reboot.")
           '
-          
+
       # ------------------------------------------------------------------
-      # 9. Build kernel
+      # 6. MODE B: SUSFS v2.1.0 Patching (Ekstrak ZIP B0TMV.zip)
       # ------------------------------------------------------------------
-      - name: Build kernel
+      - name: Apply SUSFS Backport Patch
+        if: ${{ github.event.inputs.KSU_MODE == 'susfs' }}
         working-directory: kernel
         run: |
-          # Rekam seluruh output (stdout & stderr) dari step ini ke build_error.txt
-          exec > >(tee -a build_error.txt) 2>&1
+          echo "⬇️ Downloading SUSFS Backport Package..."
+          curl -sL "${{ github.event.inputs.PATCH_ZIP_URL }}" -o susfs_pack.zip
+          unzip -q susfs_pack.zip -d susfs_tmp/
 
-          # 1. Masukkan PATH ke lokal shell
+          echo "📂 Copying SUSFS files..."
+          # Copas file dari ZIP ke source tree kernel
+          cp -r susfs_tmp/fs/* ./fs/ || true
+          cp -r susfs_tmp/include/linux/* ./include/linux/ || true
+
+          echo "🛠️ Patching KernelSU Driver for SUSFS..."
+          KSU_DIR="KernelSU"
+          [ -d "drivers/kernelsu" ] && KSU_DIR="drivers/kernelsu"
+          if [ -f "susfs_tmp/KernelSU_patches/10_enable_susfs_for_ksu.patch" ]; then
+            patch -p1 -d $KSU_DIR < susfs_tmp/KernelSU_patches/10_enable_susfs_for_ksu.patch || true
+          fi
+
+          echo "🛠️ Patching Kernel Tree (50_add_susfs_2.1.0_in_kernel-5.4.patch)..."
+          if [ -f "susfs_tmp/50_add_susfs_2.1.0_in_kernel-5.4.patch" ]; then
+            patch -p1 < susfs_tmp/50_add_susfs_2.1.0_in_kernel-5.4.patch || true
+          fi
+
+          rm -rf susfs_tmp susfs_pack.zip
+
+      # ------------------------------------------------------------------
+      # 7. WireGuard Integration Fix
+      # ------------------------------------------------------------------
+      - name: Setup WireGuard source
+        working-directory: kernel
+        run: |
+          if [ ! -d "net/wireguard" ] || [ ! -f "net/wireguard/Kconfig" ]; then
+            rm -rf net/wireguard
+            git clone --depth 1 https://git.zx2c4.com/wireguard-linux-compat net/wireguard_tmp
+            mv net/wireguard_tmp/src net/wireguard
+            rm -rf net/wireguard_tmp
+          fi    
+
+      # ------------------------------------------------------------------
+      # 8. Configure Defconfig
+      # ------------------------------------------------------------------
+      - name: Patch Defconfig
+        working-directory: kernel
+        run: |
+          DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.DEFCONFIG }}"
+
+          # Set CONFIG_LOCALVERSION
+          if grep -q "^CONFIG_LOCALVERSION=" "$DEFCONFIG_PATH"; then
+            sed -i "s|^CONFIG_LOCALVERSION=.*|CONFIG_LOCALVERSION=\"${{ github.event.inputs.LOCALVERSION }}\"|" "$DEFCONFIG_PATH"
+          else
+            echo "CONFIG_LOCALVERSION=\"${{ github.event.inputs.LOCALVERSION }}\"" >> "$DEFCONFIG_PATH"
+          fi
+
+          sed -i "s|^CONFIG_LOCALVERSION_AUTO=.*|CONFIG_LOCALVERSION_AUTO=n|" "$DEFCONFIG_PATH" || echo "CONFIG_LOCALVERSION_AUTO=n" >> "$DEFCONFIG_PATH"
+
+          # KSU Configurations
+          echo "" >> "$DEFCONFIG_PATH"
+          echo "# ReSukiSU Configuration" >> "$DEFCONFIG_PATH"
+          echo "CONFIG_KSU=y" >> "$DEFCONFIG_PATH"
+
+          if [ "${{ github.event.inputs.KSU_MODE }}" = "susfs" ]; then
+            echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG_PATH"
+            echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> "$DEFCONFIG_PATH"
+            echo "CONFIG_SUSFS=y" >> "$DEFCONFIG_PATH"
+            echo "CONFIG_SUSFS_SUS_MOUNT=y" >> "$DEFCONFIG_PATH"
+            echo "CONFIG_SUSFS_SUS_KSTAT=y" >> "$DEFCONFIG_PATH"
+            echo "CONFIG_SUSFS_SUS_OVERLAYFS=y" >> "$DEFCONFIG_PATH"
+            echo "CONFIG_SUSFS_TRY_UMOUNT=y" >> "$DEFCONFIG_PATH"
+            echo "CONFIG_SUSFS_SPOOF_UNAME_RELEASE=y" >> "$DEFCONFIG_PATH"
+            echo "CONFIG_SUSFS_ENABLE_LOG=y" >> "$DEFCONFIG_PATH"
+          else
+            echo "CONFIG_KSU_MANUAL_HOOK=y" >> "$DEFCONFIG_PATH"
+          fi
+
+      # ------------------------------------------------------------------
+      # 9. Execute Compilation
+      # ------------------------------------------------------------------
+      - name: Build Kernel
+        working-directory: kernel
+        run: |
           export PATH="$CLANG_DIR/bin:$GCC64_DIR/bin:$GCC32_DIR/bin:$PATH"
-
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-android-
@@ -350,10 +274,9 @@ jobs:
           export CLANG_TRIPLE=aarch64-linux-gnu-
           export KCFLAGS="-O3"
 
-          # Variabel Toolchain LLVM
           LLVM_FLAGS="CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip"
 
-          # 2. Make Defconfig
+          # Make Defconfig
           make O=${OUT_DIR} ARCH=${ARCH} \
             CROSS_COMPILE=${CROSS_COMPILE} \
             CROSS_COMPILE_ARM32=${CROSS_COMPILE_ARM32} \
@@ -361,18 +284,16 @@ jobs:
             ${LLVM_FLAGS} \
             "${{ github.event.inputs.DEFCONFIG }}"
 
-          # 3. Make Kernel Image
+          # Make Kernel Image
           make -j$(nproc --all) O=${OUT_DIR} ARCH=${ARCH} \
             CROSS_COMPILE=${CROSS_COMPILE} \
             CROSS_COMPILE_ARM32=${CROSS_COMPILE_ARM32} \
             CLANG_TRIPLE=${CLANG_TRIPLE} \
             ${LLVM_FLAGS} \
             KCFLAGS="${KCFLAGS}" 2>&1 | tee $GITHUB_WORKSPACE/build.log
-            
 
-            
       # ------------------------------------------------------------------
-      # 10. Kumpulkan output (Image / Image.gz-dtb / dtb)
+      # 10. Collect & Upload Artifacts
       # ------------------------------------------------------------------
       - name: Collect build output
         run: |
@@ -383,23 +304,16 @@ jobs:
                    kernel/${OUT_DIR}/arch/arm64/boot/dtb.img; do
             [ -f "$f" ] && cp "$f" output/ || true
           done
-          ls -la output
 
-      - name: Upload kernel artifact
+      - name: Upload Kernel Artifact
         uses: actions/upload-artifact@v4
         with:
           name: GusKernel-${{ github.event.inputs.KSU_MODE }}-${{ github.run_number }}
           path: output/*
-          if-no-files-found: error
 
-      # ------------------------------------------------------------------
-      # 11. Upload Full Build Log Artifact
-      # ------------------------------------------------------------------
       - name: Upload Build Log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Full-Kernel-Build-Log
           path: ${{ github.workspace }}/build.log
-          if-no-files-found: warn
-          retention-days: 7
