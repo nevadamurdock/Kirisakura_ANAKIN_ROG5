@@ -337,6 +337,9 @@ jobs:
       - name: Build kernel
         working-directory: kernel
         run: |
+          # Rekam seluruh output (stdout & stderr) dari step ini ke build_error.txt
+          exec > >(tee -a build_error.txt) 2>&1
+
           # 1. Masukkan PATH ke lokal shell
           export PATH="$CLANG_DIR/bin:$GCC64_DIR/bin:$GCC32_DIR/bin:$PATH"
 
@@ -358,25 +361,15 @@ jobs:
             ${LLVM_FLAGS} \
             "${{ github.event.inputs.DEFCONFIG }}"
 
-          # 3. Make Kernel Image (Output error dialihkan ke build_error.txt)
+          # 3. Make Kernel Image
           make -j$(nproc --all) O=${OUT_DIR} ARCH=${ARCH} \
             CROSS_COMPILE=${CROSS_COMPILE} \
             CROSS_COMPILE_ARM32=${CROSS_COMPILE_ARM32} \
             CLANG_TRIPLE=${CLANG_TRIPLE} \
             ${LLVM_FLAGS} \
-            KCFLAGS="${KCFLAGS}" 2>&1 | tee build_error.txt
+            KCFLAGS="${KCFLAGS}"
+            
 
-      # ------------------------------------------------------------------
-      # Upload Artifact Jika Build GAGAL
-      # ------------------------------------------------------------------
-      - name: Upload Error Log Artifact
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Build-Error-Log
-          path: kernel/build_error.txt
-          if-no-files-found: warn
-          retention-days: 7
             
       # ------------------------------------------------------------------
       # 10. Kumpulkan output (Image / Image.gz-dtb / dtb)
@@ -398,3 +391,17 @@ jobs:
           name: GusKernel-${{ github.event.inputs.KSU_MODE }}-${{ github.run_number }}
           path: output/*
           if-no-files-found: error
+
+      # ------------------------------------------------------------------
+      # 11. Upload Error Log Artifact (HANYA BERJALAN JIKA BUILD GAGAL)
+      # ------------------------------------------------------------------
+      - name: Upload Error Log Artifact
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Build-Error-Log
+          path: |
+            kernel/build_error.txt
+            kernel/*.log
+          if-no-files-found: warn
+          retention-days: 7     
